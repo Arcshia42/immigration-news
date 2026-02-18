@@ -2,11 +2,12 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import os
+import xml.etree.ElementTree as ET
 from datetime import datetime
 
-def crawl_nia():
-    """抓取国家移民管理局新闻"""
-    url = "https://www.nia.gov.cn/n741440/n741547/index.html"
+def crawl_iom():
+    """抓取国际移民组织(IOM)新闻"""
+    url = "https://www.iom.int/news"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.0'
     }
@@ -18,65 +19,75 @@ def crawl_nia():
         
         news_list = []
         
-        # 尝试多种可能的选择器适配网站结构
-        items = soup.select('.news-list li a') or soup.select('.list li a') or soup.select('a[title]')
+        # IOM新闻列表选择器
+        items = soup.select('.views-row') or soup.select('.node--type-news') or soup.select('article')
         
-        for item in items[:10]:  # 只取前10条
+        for item in items[:5]:  # 取前5条
             try:
-                title = item.get_text(strip=True)
-                link = item.get('href', '')
-                
-                # 过滤无效数据
-                if not title or len(title) < 10 or 'javascript' in link.lower():
+                # 提取标题
+                title_tag = item.select_one('h2 a') or item.select_one('.field--name-title a') or item.select_one('a')
+                if not title_tag:
                     continue
+                    
+                title = title_tag.get_text(strip=True)
+                link = title_tag.get('href', '')
+                
+                # 提取日期
+                date_tag = item.select_one('.field--name-field-date') or item.select_one('time')
+                date = date_tag.get_text(strip=True) if date_tag else datetime.now().strftime('%Y-%m-%d')
                 
                 # 补全链接
                 if link and not link.startswith('http'):
-                    link = 'https://www.nia.gov.cn' + link
+                    link = 'https://www.iom.int' + link
+                
+                # 过滤非移民内容（IOM都是移民相关，简单过滤即可）
+                if len(title) < 10:
+                    continue
                 
                 news_list.append({
-                    'title': title,
+                    'title': f"[IOM] {title}",
                     'link': link,
-                    'source': '国家移民管理局',
-                    'date': datetime.now().strftime('%Y-%m-%d')
+                    'source': '国际移民组织(IOM)',
+                    'date': date
                 })
-            except:
+                    
+            except Exception as e:
+                print(f"解析IOM单条失败: {e}")
                 continue
                 
+        print(f"IOM: {len(news_list)} 条")
         return news_list
+        
     except Exception as e:
-        print(f"抓取失败: {e}")
+        print(f"IOM抓取失败: {e}")
         return []
 
-def save_data(all_news):
-    """保存数据到JSON文件"""
-    # 确保目录存在
-    os.makedirs('data', exist_ok=True)
+def crawl_reuters_rss():
+    """抓取路透社RSS移民相关新闻"""
+    # 路透社世界新闻RSS
+    url = "https://www.reutersagency.com/feed/?taxonomy=markets&post_type=reuters-best"
+    # 备用：直接世界新闻
+    url = "https://www.reuters.com/rssfeed/world/"
     
-    today = datetime.now().strftime('%Y-%m-%d')
-    filename = f'data/news_{today}.json'
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
     
-    with open(filename, 'w', encoding='utf-8') as f:
-        json.dump(all_news, f, ensure_ascii=False, indent=2)
+    # 移民相关关键词
+    keywords = ['migration', 'migrant', 'immigration', 'immigrant', 'refugee', 'asylum', 'visa', 'border', 'deportation', 'citizenship']
     
-    # 同时更新最新数据文件供网页读取
-    with open('data/latest.json', 'w', encoding='utf-8') as f:
-        json.dump(all_news, f, ensure_ascii=False, indent=2)
-    
-    print(f"已保存 {len(all_news)} 条新闻到 {filename}")
-
-def main():
-    print(f"开始抓取: {datetime.now()}")
-    
-    all_news = []
-    
-    # 抓取国家移民管理局
-    nia_news = crawl_nia()
-    all_news.extend(nia_news)
-    print(f"国家移民管理局: {len(nia_news)} 条")
-    
-    save_data(all_news)
-    print("完成!")
-
-if __name__ == '__main__':
-    main()
+    try:
+        response = requests.get(url, headers=headers, timeout=30)
+        response.encoding = 'utf-8'
+        
+        # 解析XML
+        root = ET.fromstring(response.content)
+        
+        news_list = []
+        
+        # RSS格式：channel -> item
+        for item in root.findall('.//item'):
+            try:
+                title = item.find('title').text if item.find('title') is not None else ''
+                link = item.find('link').text if item.find('link') is not None else ''
+                pub_date = item.find('pubDate').
