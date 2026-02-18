@@ -2,77 +2,133 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import os
-import xml.etree.ElementTree as ET
 from datetime import datetime
 
-def crawl_iom_rss():
-    """抓取IOM RSS"""
-    url = "https://www.iom.int/rss/news"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+def crawl_iom():
+    """直接抓取IOM网页新闻"""
+    url = "https://www.iom.int/news"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.0',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    }
     
     try:
         response = requests.get(url, headers=headers, timeout=30)
-        root = ET.fromstring(response.content)
+        response.encoding = 'utf-8'
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
         news_list = []
         
-        for item in root.findall('.//item')[:5]:
+        # IOM网站新闻选择器（多种尝试）
+        articles = soup.find_all('article', class_=lambda x: x and 'news' in x.lower() if x else False)
+        if not articles:
+            articles = soup.select('.node--type-news')
+        if not articles:
+            articles = soup.select('.views-row')
+        if not articles:
+            # 最后尝试所有h2标题
+            articles = soup.find_all('h2')
+        
+        for article in articles[:5]:
             try:
-                title = item.find('title').text if item.find('title') is not None else ''
-                link = item.find('link').text if item.find('link') is not None else ''
-                date = datetime.now().strftime('%Y-%m-%d')
+                # 找标题链接
+                a_tag = article.find('a') if article.name != 'a' else article
+                if not a_tag:
+                    a_tag = article.find_parent('a') or article.find('a')
                 
-                if title and len(title) > 10:
-                    news_list.append({
-                        'title': f"[IOM] {title}",
-                        'link': link,
-                        'source': '国际移民组织(IOM)',
-                        'date': date
-                    })
-            except:
+                if not a_tag or not a_tag.get('href'):
+                    continue
+                
+                title = a_tag.get_text(strip=True)
+                link = a_tag.get('href', '')
+                
+                # 清理标题
+                if not title or len(title) < 15:
+                    continue
+                
+                # 补全链接
+                if link.startswith('/'):
+                    link = 'https://www.iom.int' + link
+                elif not link.startswith('http'):
+                    link = 'https://www.iom.int/' + link
+                
+                news_list.append({
+                    'title': f"[IOM] {title}",
+                    'link': link,
+                    'source': '国际移民组织(IOM)',
+                    'date': datetime.now().strftime('%Y-%m-%d')
+                })
+                
+            except Exception as e:
+                print(f"解析单条失败: {e}")
                 continue
         
         print(f"IOM: {len(news_list)} 条")
         return news_list
+        
     except Exception as e:
-        print(f"IOM失败: {e}")
+        print(f"IOM抓取失败: {e}")
         return []
 
-def crawl_unhcr_rss():
-    """抓取联合国难民署RSS（替代Reuters）"""
-    url = "https://www.unhcr.org/news-feed.xml"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+def crawl_dhs():
+    """抓取美国国土安全部新闻"""
+    url = "https://www.dhs.gov/news"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.0'
+    }
     
     try:
         response = requests.get(url, headers=headers, timeout=30)
-        root = ET.fromstring(response.content)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
         news_list = []
         
-        for item in root.findall('.//item')[:5]:
+        # DHS新闻选择器
+        items = soup.select('.views-row') or soup.select('.node--type-news') or soup.find_all('h3')
+        
+        for item in items[:5]:
             try:
-                title = item.find('title').text if item.find('title') is not None else ''
-                link = item.find('link').text if item.find('link') is not None else ''
-                date = datetime.now().strftime('%Y-%m-%d')
+                a_tag = item.find('a') if item.name != 'a' else item
+                if not a_tag:
+                    continue
                 
-                if title and len(title) > 10:
-                    news_list.append({
-                        'title': f"[UNHCR] {title}",
-                        'link': link,
-                        'source': '联合国难民署',
-                        'date': date
-                    })
+                title = a_tag.get_text(strip=True)
+                link = a_tag.get('href', '')
+                
+                if not title or len(title) < 15:
+                    continue
+                
+                # 只保留移民相关
+                keywords = ['immigration', 'immigrant', 'border', 'citizenship', 'visa', 'asylum', 'refugee', 'migrant']
+                if not any(kw in title.lower() for kw in keywords):
+                    continue
+                
+                if link.startswith('/'):
+                    link = 'https://www.dhs.gov' + link
+                
+                news_list.append({
+                    'title': f"[DHS] {title}",
+                    'link': link,
+                    'source': '美国国土安全部',
+                    'date': datetime.now().strftime('%Y-%m-%d')
+                })
+                
             except:
                 continue
         
-        print(f"UNHCR: {len(news_list)} 条")
+        print(f"DHS: {len(news_list)} 条")
         return news_list
+        
     except Exception as e:
-        print(f"UNHCR失败: {e}")
+        print(f"DHS抓取失败: {e}")
         return []
 
 def crawl_nia():
     """抓取中国国家移民管理局"""
     url = "https://www.nia.gov.cn/n741440/n741547/index.html"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
     keywords = ['移民', '出入境', '签证', '护照', '边检', '口岸', '外国人', '居留']
     
     try:
@@ -131,8 +187,8 @@ def main():
     print(f"开始: {datetime.now()}\n")
     all_news = []
     
-    all_news.extend(crawl_iom_rss())
-    all_news.extend(crawl_unhcr_rss())
+    all_news.extend(crawl_iom())
+    all_news.extend(crawl_dhs())
     all_news.extend(crawl_nia())
     
     save_data(all_news)
