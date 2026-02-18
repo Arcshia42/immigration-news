@@ -5,13 +5,47 @@ import os
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
+def translate_text(text):
+    """使用Google翻译API翻译文本"""
+    if not text:
+        return text
+    
+    # 检测是否包含中文，如果已经有中文就不翻译
+    if any('\u4e00' <= char <= '\u9fff' for char in text[:30]):
+        return text
+    
+    try:
+        # Google翻译API（免费版）
+        url = "https://translate.googleapis.com/translate_a/single"
+        params = {
+            'client': 'gtx',
+            'sl': 'auto',
+            'tl': 'zh-CN',
+            'dt': 't',
+            'q': text
+        }
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        response = requests.get(url, params=params, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result and len(result) > 0:
+                translated = ''.join([item[0] for item in result[0] if item[0]])
+                return translated
+        return text
+        
+    except Exception as e:
+        print(f"翻译失败: {e}")
+        return text
+
 def crawl_google_news():
     """抓取Google News移民相关新闻"""
-    # Google News RSS搜索：移民、难民、签证相关
     queries = [
         "immigration+refugee+visa",
-        "migration+asylum+border",
-        "migrant+deportation+citizenship"
+        "migration+asylum+border"
     ]
     
     headers = {
@@ -19,17 +53,14 @@ def crawl_google_news():
     }
     
     all_news = []
-    seen_titles = set()  # 去重
+    seen_titles = set()
     
     for query in queries:
         try:
-            # Google News RSS
             url = f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
             
             print(f"抓取Google News: {query}")
             response = requests.get(url, headers=headers, timeout=30)
-            
-            # 解析RSS
             root = ET.fromstring(response.content)
             
             for item in root.findall('.//item'):
@@ -42,26 +73,29 @@ def crawl_google_news():
                     link = link_elem.text if link_elem is not None else ''
                     source = source_elem.text if source_elem is not None else 'Google News'
                     
-                    # 去重
-                    if title in seen_titles:
+                    if title in seen_titles or not title or len(title) < 10:
                         continue
                     seen_titles.add(title)
                     
-                    if title and len(title) > 10:
-                        all_news.append({
-                            'title': f"[{source}] {title}",
-                            'link': link,
-                            'source': f'Google News - {source}',
-                            'date': datetime.now().strftime('%Y-%m-%d')
-                        })
+                    # 翻译标题
+                    print(f"翻译: {title[:40]}...")
+                    translated_title = translate_text(title)
+                    
+                    all_news.append({
+                        'title': translated_title,
+                        'original_title': title,
+                        'link': link,
+                        'source': f'{source} (Google News)',
+                        'date': datetime.now().strftime('%Y-%m-%d')
+                    })
+                    
+                    if len(all_news) >= 8:
+                        break
                         
-                        if len(all_news) >= 10:
-                            break
-                            
                 except:
                     continue
             
-            if len(all_news) >= 10:
+            if len(all_news) >= 8:
                 break
                 
         except Exception as e:
@@ -74,7 +108,9 @@ def crawl_google_news():
 def crawl_nia():
     """抓取中国国家移民管理局"""
     url = "https://www.nia.gov.cn/n741440/n741547/index.html"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
     keywords = ['移民', '出入境', '签证', '护照', '边检', '口岸', '外国人', '居留']
     
     try:
@@ -100,7 +136,7 @@ def crawl_nia():
                     link = 'https://www.nia.gov.cn' + link
                 
                 news_list.append({
-                    'title': f"[NIA] {title}",
+                    'title': title,
                     'link': link,
                     'source': '中国国家移民管理局',
                     'date': datetime.now().strftime('%Y-%m-%d')
