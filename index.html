@@ -86,6 +86,15 @@
             text-decoration: underline;
         }
         
+        .original-title {
+            font-size: 13px;
+            color: #888;
+            font-style: italic;
+            margin-bottom: 8px;
+            border-left: 3px solid #ddd;
+            padding-left: 10px;
+        }
+        
         .news-meta {
             display: flex;
             gap: 15px;
@@ -127,7 +136,7 @@
     <div class="container">
         <header>
             <h1>🌍 移民政策资讯聚合</h1>
-            <div class="subtitle">每日自动抓取全球移民管理动态</div>
+            <div class="subtitle">每日自动抓取全球移民管理动态（自动翻译）</div>
         </header>
         
         <div class="update-time" id="update-time">加载中...</div>
@@ -157,43 +166,44 @@
                     return;
                 }
                 
-                // 显示更新时间
                 timeDiv.textContent = `最后更新：${news[0].date}`;
                 
-                // 渲染新闻列表
-                container.innerHTML = news.map(item => `
+                container.innerHTML = news.map(item => {
+                    // 如果有原文，显示原文
+                    const originalHtml = item.original_title ? 
+                        `<div class="original-title">原文：${escapeHtml(item.original_title)}</div>` : '';
+                    
+                    return `
                     <div class="news-item">
                         <a href="${item.link}" target="_blank" class="news-title">
                             ${escapeHtml(item.title)}
                         </a>
+                        ${originalHtml}
                         <div class="news-meta">
                             <span class="source">${item.source}</span>
                             <span>${item.date}</span>
                         </div>
                     </div>
-                `).join('');
+                `}).join('');
                 
             } catch (error) {
                 container.innerHTML = `
                     <div class="error">
                         <strong>加载失败</strong><br>
                         ${error.message}<br><br>
-                        <small>可能原因：首次运行尚未完成，或数据文件不存在<br>
-                        请等待几分钟后刷新，或检查GitHub Actions运行状态</small>
+                        <small>请稍后刷新重试</small>
                     </div>
                 `;
                 timeDiv.textContent = '';
             }
         }
         
-        // 防止XSS攻击的转义函数
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
         }
         
-        // 页面加载完成后执行
         loadNews();
     </script>
 </body>
